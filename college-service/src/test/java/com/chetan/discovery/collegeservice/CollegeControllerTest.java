@@ -6,7 +6,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 /** Verifies response contract and rejects invalid identifiers. */
-@WebMvcTest(CollegeController.class)
+@WebMvcTest(controllers = CollegeController.class, properties = "spring.cloud.config.enabled=false")
 class CollegeControllerTest {
  @Autowired MockMvc mvc;
  @Test void returnsServiceIdentity() throws Exception { mvc.perform(get("/colleges/101")).andExpect(status().isOk()).andExpect(jsonPath("$.id").value(101)).andExpect(jsonPath("$.service").value("college-service")); }

@@ -6,6 +6,7 @@ These versions follow the Boot 3.x context of this example. Spring Cloud 2025.0.
 
 | Module | Port(s) | Responsibility |
 |---|---|---|
+| config-server | 8762 | Central configuration for all five client applications |
 | eureka-server | 8761 | Service registry and dashboard |
 | api-gateway | 8080 | Path routing and client-side load balancing |
 | student-service | 8081, 8082, 8083 | Demo student endpoint |
@@ -24,9 +25,10 @@ mvn clean verify
 
 ## Run (Windows, Linux or macOS)
 
-Run each command in a separate terminal from the repository root. Start Eureka first and wait for its dashboard at http://localhost:8761, then start services and gateway.
+Run each command in a separate terminal from the repository root. Start Config Server first and wait for http://localhost:8762/actuator/health, then Eureka and its dashboard at http://localhost:8761, then services and gateway. Run from the repository root so Config Server finds the external `configurations/` folder.
 
 ```sh
+java -jar config-server/target/config-server.jar
 java -jar eureka-server/target/eureka-server.jar
 java -jar student-service/target/student-service.jar --server.port=8081
 java -jar student-service/target/student-service.jar --server.port=8082
@@ -46,7 +48,7 @@ Wait until Eureka lists the instances as UP and gateway discovery caches refresh
 Example response:
 
 ```json
-{"id":101,"name":"Student 101","service":"student-service","instancePort":"8082"}
+{"id":101,"name":"Student 101","service":"student-service","instancePort":"8082","configurationProfile":"dev"}
 ```
 
 All positive IDs return illustrative data; no database is used. Invalid or nonpositive IDs return HTTP 400.
@@ -64,13 +66,37 @@ Import **Existing Maven Projects**, select this root directory and import all mo
 
 ## Configuration
 
-All application configuration is in each module's `src/main/resources/application.properties`. Gateway uses the release-specific prefix `spring.cloud.gateway.server.webflux.routes` and the reactive `spring-cloud-starter-gateway-server-webflux` starter. Do not add `spring-boot-starter-web` to the reactive gateway.
+Client bootstrap settings (application name, profile, Config Server URL) remain in each module's `src/main/resources/application.properties`. Service ports, discovery settings, gateway routes and shared settings are now in the external `configurations/` folder. Gateway uses the release-specific prefix `spring.cloud.gateway.server.webflux.routes` and the reactive `spring-cloud-starter-gateway-server-webflux` starter. Do not add `spring-boot-starter-web` to the reactive gateway.
 
 Routes use `lb://student-service`, `lb://employee-service`, and `lb://college-service`; there are no backend instance addresses in route configuration. Explicit routes keep the public API controlled; discovery-locator automatic routes are not enabled. Incoming paths are preserved.
 
 `EUREKA_URL` overrides the registry URL. The default `eureka.instance.hostname=localhost` is for a single-machine demo; for VMs/containers, override it with a reachable hostname or configure `prefer-ip-address=true` with the correct IP. `localhost` in a container points to that container. Instance IDs combine service name and port; customize IDs when several hosts share a port.
 
 Actuator exposes only health/info. Gateway outbound connect timeout is 3 seconds and response timeout is 5 seconds. No automatic retry is configured.
+
+## Centralized configuration
+
+Config Server uses the native filesystem backend, serving files from `configurations/` in this checkout. Configuration changes are tracked in Git, but the server reads the local checkout, not GitHub directly. Pull updates on the Config Server host before using them.
+
+- `application.properties`: shared client settings.
+- `<service>.properties`: service-specific defaults.
+- `<service>-dev.properties` and `<service>-prod.properties`: profile overrides for all five clients, including Eureka and Gateway.
+
+`dev` is the default client profile; use `--spring.profiles.active=prod` or `APP_PROFILE=prod` to select production overrides. The prod files are demonstration overlays, not production-hardened infrastructure configuration. Config Server uses its own `native` profile and local bootstrap configuration, avoiding a circular dependency.
+
+Inspect the served configuration at http://localhost:8762/student-service/dev or http://localhost:8762/api-gateway/prod. The required `spring.config.import=configserver:...` makes client startup fail if Config Server is unavailable. `CONFIG_SERVER_URL` overrides its URL. Config Server does not register with Eureka; clients reach it directly, so startup order is Config Server → Eureka → business services/Gateway.
+
+To run Config Server from another working directory, specify an absolute folder URI:
+
+```sh
+java -jar config-server/target/config-server.jar --spring.cloud.config.server.native.search-locations=file:/absolute/path/configurations/
+```
+
+For Windows use `file:///C:/projects/Spring-boot-application-/configurations/` (quote the argument if the path contains spaces). The `CONFIG_LOCATION` environment variable accepts the same URI. In STS, set Config Server's working directory to the repository root or pass this search-locations argument.
+
+Edit central properties and restart affected clients to apply updates. Automatic refresh and Spring Cloud Bus are not configured. Command-line arguments such as `--server.port=8082` still override remote values. Controller unit tests disable Config Client to remain independent of external servers; the integration test uses the real server.
+
+Keep Config Server private and add authentication/TLS before deployment: its endpoints expose configuration. No credentials or secrets are committed. For high availability, use a reliable shared configuration backend across Config Server instances.
 
 ## Tests
 
@@ -82,9 +108,9 @@ Stop all manually started demo apps before running:
 mvn clean verify
 ```
 
-The Java test uses `ProcessBuilder` to launch Eureka, three student instances, employee, college and gateway. Java 17 `HttpClient` sends actual HTTP requests; Jackson reads JSON and JUnit checks the responses. It waits for discovery, verifies all three gateway routes, and asserts that 12 sequential student requests reach each of three stable instances four times. It stops its own processes even after a failure and keeps application logs under `integration-tests/target/smoke-logs`.
+The Java test first starts Config Server, verifies dev/prod configuration for every client, and checks that Student Service consumes the remote profile marker. It uses `ProcessBuilder` to launch Eureka, three student instances, employee, college and gateway. Java 17 `HttpClient` sends actual HTTP requests; Jackson reads JSON and JUnit checks the responses. It waits for discovery, verifies all three gateway routes, and asserts that 12 sequential student requests reach each of three stable instances four times. It stops its own processes even after a failure and keeps application logs under `integration-tests/target/smoke-logs`.
 
-Requires ports 8761, 8080–8083, 8091 and 8101 free and approximately 2 GB free RAM. Run the Maven command from the repository root. To build and run only unit tests without starting the full architecture:
+Requires ports 8762, 8761, 8080–8083, 8091 and 8101 free and approximately 2 GB free RAM. Run the Maven command from the repository root. To build and run only unit tests without starting the full architecture:
 
 ```sh
 mvn clean verify -DskipITs

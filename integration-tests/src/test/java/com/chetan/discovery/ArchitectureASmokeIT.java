@@ -41,8 +41,26 @@ class ArchitectureASmokeIT {
     @Test
     void discoversServicesAndBalancesRequests() throws Exception {
         // Check all ports before starting anything; never terminate existing user processes.
-        requireFreePorts(8761, 8080, 8081, 8082, 8083, 8091, 8101);
+        requireFreePorts(8762, 8761, 8080, 8081, 8082, 8083, 8091, 8101);
         try {
+            start("config-server", 8762);
+            await(() -> "UP".equals(get(8762, "/actuator/health").path("status").asText()),
+                    "Config Server startup");
+            // Verify service/profile resolution before any clients are launched.
+            for (String service : List.of("eureka-server", "api-gateway", "student-service",
+                    "employee-service", "college-service")) {
+                for (String profile : List.of("dev", "prod")) {
+                    JsonNode config = get(8762, "/" + service + "/" + profile);
+                    assertEquals(service, config.path("name").asText());
+                    boolean found = false;
+                    for (JsonNode source : config.path("propertySources")) {
+                        if (profile.equals(source.path("source").path("app.configuration.profile").asText())) {
+                            found = true;
+                        }
+                    }
+                    assertEquals(true, found, "Missing profile configuration for " + service + "/" + profile);
+                }
+            }
             start("eureka-server", 8761);
             await(() -> "UP".equals(get(8761, "/actuator/health").path("status").asText()),
                     "Eureka startup");
@@ -65,7 +83,7 @@ class ArchitectureASmokeIT {
                     "employee route discovery");
             await(() -> "college-service".equals(get(8080, "/colleges/101").path("service").asText()),
                     "college route discovery");
-            System.out.println("PASS: real Eureka discovery, three gateway routes, round-robin distribution: " + counts);
+            System.out.println("PASS: centralized configuration, real Eureka discovery, three gateway routes, round-robin distribution: " + counts);
         } finally {
             stopApplications();
             System.out.println("Application logs: " + logDirectory);
@@ -82,6 +100,7 @@ class ArchitectureASmokeIT {
         Path java = Path.of(System.getProperty("java.home"), "bin", executable);
         Process process = new ProcessBuilder(java.toString(), "-Xmx256m", "-jar", jar.toString(),
                 "--server.port=" + port)
+                .directory(root.toFile())
                 .redirectErrorStream(true)
                 .redirectOutput(logDirectory.resolve(module + "-" + port + ".log").toFile())
                 .start();
@@ -104,6 +123,7 @@ class ArchitectureASmokeIT {
             JsonNode response = get(8080, "/students/101");
             assertEquals("student-service", response.path("service").asText());
             assertEquals(101, response.path("id").asInt());
+            assertEquals("dev", response.path("configurationProfile").asText(), "Client must consume remote properties");
             counts.merge(response.path("instancePort").asText(), 1, Integer::sum);
         }
         return counts;

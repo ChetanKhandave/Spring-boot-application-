@@ -13,7 +13,7 @@ public class CollegeController {
  @GetMapping("/{id}")
  public Response find(@PathVariable long id) {
   if (id <= 0) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "id must be positive");
-  return new Response(id, "College " + id, "college-service", environment.getProperty("local.server.port", environment.getProperty("server.port")));
+  return new Response(id, "College " + id, "college-service", environment.getProperty("local.server.port", environment.getProperty("server.port")), environment.getProperty("app.configuration.profile", "unknown"));
  }
- public record Response(long id, String name, String service, String instancePort) {}
+ public record Response(long id, String name, String service, String instancePort, String configurationProfile) {}
 }

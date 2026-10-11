@@ -5,6 +5,7 @@
   <dependencies>
     <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-test</artifactId><scope>test</scope></dependency>
     <dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId><scope>test</scope></dependency>
+    <dependency><groupId>com.chetan.discovery</groupId><artifactId>config-server</artifactId><version>${project.version}</version><scope>test</scope></dependency>
     <!-- Reactor dependencies ensure the executable JARs are packaged before this module runs. -->
     <dependency><groupId>com.chetan.discovery</groupId><artifactId>eureka-server</artifactId><version>${project.version}</version><scope>test</scope></dependency>
     <dependency><groupId>com.chetan.discovery</groupId><artifactId>api-gateway</artifactId><version>${project.version}</version><scope>test</scope></dependency>
