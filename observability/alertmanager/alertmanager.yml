@@ -1,0 +1,11 @@
+global:
+  resolve_timeout: 5m
+route:
+  receiver: local-ui
+  group_by: [alertname, service, application]
+  group_wait: 10s
+  group_interval: 1m
+  repeat_interval: 4h
+# Alerts are visible in Alertmanager. To send external notifications, configure a real receiver.
+receivers:
+  - name: local-ui

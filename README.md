@@ -72,7 +72,7 @@ Routes use `lb://student-service`, `lb://employee-service`, and `lb://college-se
 
 `EUREKA_URL` overrides the registry URL. The default `eureka.instance.hostname=localhost` is for a single-machine demo; for VMs/containers, override it with a reachable hostname or configure `prefer-ip-address=true` with the correct IP. `localhost` in a container points to that container. Instance IDs combine service name and port; customize IDs when several hosts share a port.
 
-Actuator exposes only health/info. Gateway outbound connect timeout is 3 seconds and response timeout is 5 seconds. No automatic retry is configured.
+Actuator exposes health/info/prometheus, with liveness/readiness probes and JVM/HTTP metrics. Gateway outbound connect timeout is 3 seconds and response timeout is 5 seconds. No automatic retry is configured.
 
 ## Centralized configuration
 
@@ -125,3 +125,7 @@ Stop one student instance and repeat requests. Graceful shutdown deregisters; cr
 For production, configure registry and gateway redundancy, reachable addresses, authentication/authorization, TLS, observability and resilience appropriate to the API. Keep backend access controlled. Never blindly retry non-idempotent writes.
 
 References: [Spring Cloud compatibility](https://spring.io/projects/spring-cloud), [2025.0.3 release and lifecycle](https://spring.io/blog/2026/06/11/spring-cloud-2025-0-3-aka-northfields-has-been-released/), [Gateway 4.3 docs](https://docs.spring.io/spring-cloud-gateway/reference/4.3/).
+
+## Observability
+
+All Java applications now include Actuator, Micrometer Prometheus metrics, Micrometer Tracing with OpenTelemetry OTLP export, and structured JSON logging. The `observability/` folder provides Docker Compose for Prometheus, Grafana, Tempo, Loki, Grafana Alloy and Alertmanager, with provisioned data sources, a dashboard and alert rules. See [observability setup](observability/README.md) for startup commands, trace/log correlation, notifications and end-to-end ingestion verification.

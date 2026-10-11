@@ -11,7 +11,28 @@ jobs:
           distribution: temurin
           java-version: '17'
           cache: maven
+      - name: Start observability backends
+        env:
+          GRAFANA_ADMIN_PASSWORD: ci-local-only-password
+        run: |
+          mkdir -p logs
+          chmod 777 logs
+          docker compose -f observability/compose.yml up -d
+          docker compose -f observability/compose.yml run --rm --entrypoint promtool prometheus check config /etc/prometheus/prometheus.yml
+          docker compose -f observability/compose.yml run --rm --entrypoint amtool alertmanager check-config /etc/alertmanager/alertmanager.yml
       - run: mvn -B clean verify
+        env:
+          OBSERVABILITY_VERIFY: 'true'
+      - name: Collect backend logs
+        if: always()
+        env:
+          GRAFANA_ADMIN_PASSWORD: ci-local-only-password
+        run: docker compose -f observability/compose.yml logs --no-color > observability-backends.log
+      - name: Stop observability backends
+        if: always()
+        env:
+          GRAFANA_ADMIN_PASSWORD: ci-local-only-password
+        run: docker compose -f observability/compose.yml down
       - name: Upload test reports and application logs
         if: always()
         uses: actions/upload-artifact@v4
@@ -21,3 +42,5 @@ jobs:
             **/target/surefire-reports/
             integration-tests/target/failsafe-reports/
             integration-tests/target/smoke-logs/
+            logs/
+            observability-backends.log
