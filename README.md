@@ -129,3 +129,21 @@ References: [Spring Cloud compatibility](https://spring.io/projects/spring-cloud
 ## Observability
 
 All Java applications now include Actuator, Micrometer Prometheus metrics, Micrometer Tracing with OpenTelemetry OTLP export, and structured JSON logging. The `observability/` folder provides Docker Compose for Prometheus, Grafana, Tempo, Loki, Grafana Alloy and Alertmanager, with provisioned data sources, a dashboard and alert rules. See [observability setup](observability/README.md) for startup commands, trace/log correlation, notifications and end-to-end ingestion verification.
+
+## OpenAPI documentation and Swagger UI
+
+The business services use `springdoc-openapi-starter-webmvc-ui`; reactive Gateway uses `springdoc-openapi-starter-webflux-ui`. Version 2.8.17 is managed in the parent POM for Spring Boot 3.5 compatibility. Infrastructure services (Config Server and Eureka) expose health/metrics rather than business Swagger endpoints.
+
+With the default `dev` profile, start Config Server, Eureka, services and Gateway, then open **http://localhost:8080/swagger-ui.html**. Select Student, Employee or College Service in the definition dropdown, expand the GET operation, choose **Try it out**, enter `101`, and click **Execute**. Requests go through Gateway and can return different instance ports. Enter `0` or a nonnumeric ID to test HTTP 400. The endpoints return illustrative data; there is no database record lookup or HTTP 404 for an unknown positive ID.
+
+| Service | Direct Swagger UI | Direct OpenAPI JSON | OpenAPI through Gateway |
+|---|---|---|---|
+| Student | http://localhost:8081/swagger-ui.html | http://localhost:8081/v3/api-docs | http://localhost:8080/openapi/students |
+| Employee | http://localhost:8091/swagger-ui.html | http://localhost:8091/v3/api-docs | http://localhost:8080/openapi/employees |
+| College | http://localhost:8101/swagger-ui.html | http://localhost:8101/v3/api-docs | http://localhost:8080/openapi/colleges |
+
+Gateway presents three definitions rather than merging their contracts. Dev-only load-balanced documentation routes rewrite `/openapi/<service>` to the selected service's `/v3/api-docs`. Relative OpenAPI server URL `/` makes Try it out use the current browser origin, so direct UI calls the service and Gateway UI calls Gateway without adding CORS configuration.
+
+Contracts document operation descriptions, the positive ID parameter, HTTP 200/400 responses and response field meanings/examples. Swagger UI enables manual interactive API calls; it does not replace automated tests. Maven verification checks contracts, UI pages, Gateway aggregation, invalid-ID responses and documentation shutdown with real `prod` applications.
+
+For `prod` (and profiles other than explicitly enabled `dev`), API-docs and UI are disabled by default. Gateway documentation routes are configured only in the dev overlay. Start every client with the intended profile, e.g. `--spring.profiles.active=prod`; mixing dev clients with a prod Gateway can still leave direct dev service documentation accessible. No authentication is added by Swagger itself. Keep dev services private; if security is added later, configure documentation access according to the chosen authentication policy.

@@ -37,14 +37,14 @@ class ArchitectureASmokeIT {
     private final Path logDirectory = root.resolve("integration-tests/target/smoke-logs");
     private final List<Process> processes = new ArrayList<>();
     private final HttpClient client = HttpClient.newBuilder()
-            .connectTimeout(Duration.ofSeconds(3)).build();
+            .connectTimeout(Duration.ofSeconds(3)).followRedirects(HttpClient.Redirect.NORMAL).build();
     private final ObjectMapper mapper = new ObjectMapper();
 
     /** Verifies all three routes and equal selection across three stable student instances. */
     @Test
     void discoversServicesAndBalancesRequests() throws Exception {
         // Check all ports before starting anything; never terminate existing user processes.
-        requireFreePorts(8762, 8761, 8080, 8081, 8082, 8083, 8091, 8101);
+        requireFreePorts(8762, 8761, 8080, 8081, 8082, 8083, 8091, 8101, 8180, 8181, 8191, 8201);
         try {
             start("config-server", 8762);
             await(() -> "UP".equals(get(8762, "/actuator/health").path("status").asText()),
@@ -95,6 +95,7 @@ class ArchitectureASmokeIT {
             if ("true".equalsIgnoreCase(System.getenv("OBSERVABILITY_VERIFY"))) {
                 verifyObservabilityBackends();
             }
+            verifyOpenApi();
             System.out.println("PASS: centralized configuration, real Eureka discovery, three gateway routes, round-robin distribution: " + counts);
         } finally {
             stopApplications();
@@ -103,6 +104,10 @@ class ArchitectureASmokeIT {
     }
 
     private void start(String module, int port) throws IOException {
+        start(module, port, "dev");
+    }
+
+    private void start(String module, int port, String profile) throws IOException {
         Path jar = root.resolve(module + "/target/" + module + ".jar");
         if (!Files.isRegularFile(jar)) {
             throw new IOException("Missing " + jar + "; run mvn clean verify from the repository root");
@@ -111,7 +116,7 @@ class ArchitectureASmokeIT {
         String executable = System.getProperty("os.name").startsWith("Windows") ? "java.exe" : "java";
         Path java = Path.of(System.getProperty("java.home"), "bin", executable);
         Process process = new ProcessBuilder(java.toString(), "-Xmx256m", "-jar", jar.toString(),
-                "--server.port=" + port)
+                "--server.port=" + port, "--spring.profiles.active=" + (module.equals("config-server") ? "native" : profile))
                 .directory(root.toFile())
                 .redirectErrorStream(true)
                 .redirectOutput(logDirectory.resolve(module + "-" + port + ".log").toFile())
@@ -127,6 +132,55 @@ class ArchitectureASmokeIT {
             throw new IOException("GET " + path + " returned HTTP " + response.statusCode());
         }
         return mapper.readTree(response.body());
+    }
+
+    /** Checks API contracts/UI assets, Gateway aggregation and production documentation shutdown. */
+    private void verifyOpenApi() throws Exception {
+        String[][] services = {{"student-service", "students", "8081", "8181"},
+                {"employee-service", "employees", "8091", "8191"},
+                {"college-service", "colleges", "8101", "8201"}};
+        for (String[] service : services) {
+            int port = Integer.parseInt(service[2]);
+            String path = "/" + service[1] + "/{id}";
+            JsonNode direct = get(port, "/v3/api-docs");
+            assertEquals("3.1.0", direct.path("openapi").asText());
+            org.junit.jupiter.api.Assertions.assertTrue(direct.path("paths").has(path));
+            JsonNode operation = direct.path("paths").path(path).path("get");
+            org.junit.jupiter.api.Assertions.assertTrue(operation.path("responses").has("200"));
+            org.junit.jupiter.api.Assertions.assertTrue(operation.path("responses").has("400"));
+            assertEquals("/", direct.path("servers").path(0).path("url").asText());
+            org.junit.jupiter.api.Assertions.assertTrue(read(HttpRequest.newBuilder(
+                    URI.create("http://localhost:" + port + "/swagger-ui.html")).GET().build()).contains("Swagger UI"));
+            JsonNode gateway = get(8080, "/openapi/" + service[1]);
+            assertEquals(direct.path("info"), gateway.path("info"));
+            assertEquals(400, status(8080, "/" + service[1] + "/0"));
+        }
+        assertEquals(3, get(8080, "/v3/api-docs/swagger-config").path("urls").size());
+        org.junit.jupiter.api.Assertions.assertTrue(read(HttpRequest.newBuilder(
+                URI.create("http://localhost:8080/swagger-ui.html")).GET().build()).contains("Swagger UI"));
+        // Production uses the real centrally served prod profile; services remain functional.
+        for (String[] service : services) {
+            int port = Integer.parseInt(service[3]);
+            start(service[0], port, "prod");
+            await(() -> "UP".equals(get(port, "/actuator/health").path("status").asText()), "prod " + service[0]);
+            assertEquals("prod", get(port, "/" + service[1] + "/101").path("configurationProfile").asText());
+            assertEquals(404, status(port, "/v3/api-docs"));
+            assertEquals(404, status(port, "/swagger-ui/index.html"));
+        }
+        start("api-gateway", 8180, "prod");
+        await(() -> "UP".equals(get(8180, "/actuator/health").path("status").asText()), "prod gateway");
+        assertEquals(404, status(8180, "/v3/api-docs"));
+        assertEquals(404, status(8180, "/swagger-ui/index.html"));
+        for (String[] service : services) {
+            assertEquals(404, status(8180, "/openapi/" + service[1]));
+        }
+        System.out.println("PASS: OpenAPI contracts, Swagger UI, Gateway docs aggregation, invalid-ID calls and prod docs disabled");
+    }
+
+    private int status(int port, String path) throws IOException, InterruptedException {
+        HttpRequest request = HttpRequest.newBuilder(URI.create("http://localhost:" + port + path))
+                .timeout(Duration.ofSeconds(5)).GET().build();
+        return client.send(request, HttpResponse.BodyHandlers.discarding()).statusCode();
     }
 
     /** Checks actual telemetry ingestion when Compose backends are available (enabled in CI). */
