@@ -1,0 +1,20 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <parent><groupId>com.chetan.discovery</groupId><artifactId>architecture-a</artifactId><version>1.0.0</version></parent>
+  <artifactId>integration-tests</artifactId>
+  <dependencies>
+    <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-test</artifactId><scope>test</scope></dependency>
+    <dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId><scope>test</scope></dependency>
+    <!-- Reactor dependencies ensure the executable JARs are packaged before this module runs. -->
+    <dependency><groupId>com.chetan.discovery</groupId><artifactId>eureka-server</artifactId><version>${project.version}</version><scope>test</scope></dependency>
+    <dependency><groupId>com.chetan.discovery</groupId><artifactId>api-gateway</artifactId><version>${project.version}</version><scope>test</scope></dependency>
+    <dependency><groupId>com.chetan.discovery</groupId><artifactId>student-service</artifactId><version>${project.version}</version><scope>test</scope></dependency>
+    <dependency><groupId>com.chetan.discovery</groupId><artifactId>employee-service</artifactId><version>${project.version}</version><scope>test</scope></dependency>
+    <dependency><groupId>com.chetan.discovery</groupId><artifactId>college-service</artifactId><version>${project.version}</version><scope>test</scope></dependency>
+  </dependencies>
+  <build><plugins><plugin>
+    <groupId>org.apache.maven.plugins</groupId><artifactId>maven-failsafe-plugin</artifactId>
+    <configuration><systemPropertyVariables><architecture.root>${maven.multiModuleProjectDirectory}</architecture.root></systemPropertyVariables></configuration>
+    <executions><execution><goals><goal>integration-test</goal><goal>verify</goal></goals></execution></executions>
+  </plugin></plugins></build>
+</project>

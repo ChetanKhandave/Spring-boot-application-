@@ -12,4 +12,12 @@ jobs:
           java-version: '17'
           cache: maven
       - run: mvn -B clean verify
-      - run: python3 scripts/smoke-test.py
+      - name: Upload test reports and application logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports-and-smoke-logs
+          path: |
+            **/target/surefire-reports/
+            integration-tests/target/failsafe-reports/
+            integration-tests/target/smoke-logs/

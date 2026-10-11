@@ -74,13 +74,23 @@ Actuator exposes only health/info. Gateway outbound connect timeout is 3 seconds
 
 ## Tests
 
-`mvn verify` runs MVC response-contract and invalid-ID tests for all business services. For a real end-to-end check, stop all manually started demo apps, build, then run (Python 3 required):
+`mvn clean verify` runs the nine MVC response-contract/invalid-ID tests and then the Java end-to-end smoke test in the `integration-tests` module. Maven Failsafe executes `ArchitectureASmokeIT` after the application JARs are packaged. Python is not required.
+
+Stop all manually started demo apps before running:
 
 ```sh
-python scripts/smoke-test.py
+mvn clean verify
 ```
 
-The script launches Eureka, three student instances, employee, college and gateway; waits for discovery; checks all three routes; asserts 12 sequential student requests reach each of three stable instances four times; and stops its own processes. It fails on startup or routing errors and prints application logs. Requires ports 8761, 8080–8083, 8091 and 8101 free and approximately 2 GB free RAM. CI runs both test layers.
+The Java test uses `ProcessBuilder` to launch Eureka, three student instances, employee, college and gateway. Java 17 `HttpClient` sends actual HTTP requests; Jackson reads JSON and JUnit checks the responses. It waits for discovery, verifies all three gateway routes, and asserts that 12 sequential student requests reach each of three stable instances four times. It stops its own processes even after a failure and keeps application logs under `integration-tests/target/smoke-logs`.
+
+Requires ports 8761, 8080–8083, 8091 and 8101 free and approximately 2 GB free RAM. Run the Maven command from the repository root. To build and run only unit tests without starting the full architecture:
+
+```sh
+mvn clean verify -DskipITs
+```
+
+GitHub Actions runs the same Java/Maven test flow and uploads test reports and application logs, including when verification fails.
 
 ## Failure behavior and production scope
 
