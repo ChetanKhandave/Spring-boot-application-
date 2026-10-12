@@ -9,9 +9,6 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.URI;
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
-import java.util.UUID;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -87,14 +84,13 @@ class ArchitectureASmokeIT {
             await(() -> "college-service".equals(get(8080, "/colleges/101").path("service").asText()),
                     "college route discovery");
             for (int port : new int[]{8762, 8761, 8080, 8081, 8082, 8083, 8091, 8101}) {
-                String metrics = read(HttpRequest.newBuilder(URI.create("http://localhost:" + port
-                        + "/actuator/prometheus")).GET().build());
-                org.junit.jupiter.api.Assertions.assertTrue(metrics.contains("jvm_memory_used_bytes"),
-                        "Prometheus JVM metrics missing on " + port);
+                JsonNode metrics = get(port, "/actuator/metrics");
+                org.junit.jupiter.api.Assertions.assertTrue(metrics.path("names").toString().contains("jvm.memory.used"));
+                JsonNode memory = get(port, "/actuator/metrics/jvm.memory.used");
+                org.junit.jupiter.api.Assertions.assertFalse(memory.path("measurements").isEmpty());
+                assertEquals(404, status(port, "/actuator/prometheus"));
             }
-            if ("true".equalsIgnoreCase(System.getenv("OBSERVABILITY_VERIFY"))) {
-                verifyObservabilityBackends();
-            }
+            System.out.println("PASS: built-in Actuator metrics on all JVMs without external backends");
             verifyOpenApi();
             System.out.println("PASS: centralized configuration, real Eureka discovery, three gateway routes, round-robin distribution: " + counts);
         } finally {
@@ -181,35 +177,6 @@ class ArchitectureASmokeIT {
         HttpRequest request = HttpRequest.newBuilder(URI.create("http://localhost:" + port + path))
                 .timeout(Duration.ofSeconds(5)).GET().build();
         return client.send(request, HttpResponse.BodyHandlers.discarding()).statusCode();
-    }
-
-    /** Checks actual telemetry ingestion when Compose backends are available (enabled in CI). */
-    private void verifyObservabilityBackends() throws Exception {
-        String traceId = UUID.randomUUID().toString().replace("-", "");
-        read(HttpRequest.newBuilder(URI.create("http://localhost:8080/students/101"))
-                .header("traceparent", "00-" + traceId + "-0123456789abcdef-01").GET().build());
-        await(() -> {
-            JsonNode trace = get(3200, "/api/traces/" + traceId);
-            String content = trace.toString();
-            return content.contains("student-service") && content.contains("api-gateway");
-        }, "Tempo trace containing gateway and downstream service spans");
-        String query = URLEncoder.encode("{service=\"student-service\"} |= \"" + traceId + "\"", StandardCharsets.UTF_8);
-        await(() -> !get(3100, "/loki/api/v1/query_range?query=" + query).path("data").path("result").isEmpty(),
-                "trace-correlated student log in Loki");
-        String prometheusQuery = URLEncoder.encode("count(up{job=\"spring-boot\"} == 1)", StandardCharsets.UTF_8);
-        await(() -> get(9090, "/api/v1/query?query=" + prometheusQuery)
-                .path("data").path("result").path(0).path("value").path(1).asInt() >= 8,
-                "Prometheus scraping every running JVM");
-        assertEquals("ok", get(3000, "/api/health").path("database").asText());
-        org.junit.jupiter.api.Assertions.assertFalse(get(9090, "/api/v1/rules").path("data").path("groups").isEmpty());
-        // Exercise the local alert pipeline; no external recipient is contacted.
-        String alert = "[{\"labels\":{\"alertname\":\"ObservabilitySmokeTest\",\"severity\":\"info\"}}]";
-        read(HttpRequest.newBuilder(URI.create("http://localhost:9093/api/v2/alerts"))
-                .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString(alert)).build());
-        await(() -> get(9093, "/api/v2/alerts").toString().contains("ObservabilitySmokeTest"),
-                "Alertmanager accepting a local test alert");
-        System.out.println("PASS: Prometheus scraping, Grafana health, Tempo distributed trace, Loki correlated logs and Alertmanager");
     }
 
     private String read(HttpRequest request) throws IOException, InterruptedException {

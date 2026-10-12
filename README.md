@@ -72,7 +72,7 @@ Routes use `lb://student-service`, `lb://employee-service`, and `lb://college-se
 
 `EUREKA_URL` overrides the registry URL. The default `eureka.instance.hostname=localhost` is for a single-machine demo; for VMs/containers, override it with a reachable hostname or configure `prefer-ip-address=true` with the correct IP. `localhost` in a container points to that container. Instance IDs combine service name and port; customize IDs when several hosts share a port.
 
-Actuator exposes health/info/prometheus, with liveness/readiness probes and JVM/HTTP metrics. Gateway outbound connect timeout is 3 seconds and response timeout is 5 seconds. No automatic retry is configured.
+Actuator exposes health/info/metrics, with liveness/readiness probes and JVM/HTTP metrics. Gateway outbound connect timeout is 3 seconds and response timeout is 5 seconds. No automatic retry is configured.
 
 ## Centralized configuration
 
@@ -110,7 +110,7 @@ mvn clean verify
 
 The Java test first starts Config Server, verifies dev/prod configuration for every client, and checks that Student Service consumes the remote profile marker. It uses `ProcessBuilder` to launch Eureka, three student instances, employee, college and gateway. Java 17 `HttpClient` sends actual HTTP requests; Jackson reads JSON and JUnit checks the responses. It waits for discovery, verifies all three gateway routes, and asserts that 12 sequential student requests reach each of three stable instances four times. It stops its own processes even after a failure and keeps application logs under `integration-tests/target/smoke-logs`.
 
-Requires ports 8762, 8761, 8080–8083, 8091 and 8101 free and approximately 2 GB free RAM. Run the Maven command from the repository root. To build and run only unit tests without starting the full architecture:
+Requires ports 8762, 8761, 8080–8083, 8091, 8101, 8180, 8181, 8191 and 8201 free and approximately 3 GB free RAM (including production documentation checks). Run the Maven command from the repository root. To build and run only unit tests without starting the full architecture:
 
 ```sh
 mvn clean verify -DskipITs
@@ -126,9 +126,24 @@ For production, configure registry and gateway redundancy, reachable addresses, 
 
 References: [Spring Cloud compatibility](https://spring.io/projects/spring-cloud), [2025.0.3 release and lifecycle](https://spring.io/blog/2026/06/11/spring-cloud-2025-0-3-aka-northfields-has-been-released/), [Gateway 4.3 docs](https://docs.spring.io/spring-cloud-gateway/reference/4.3/).
 
-## Observability
+## Observability without extra software
 
-All Java applications now include Actuator, Micrometer Prometheus metrics, Micrometer Tracing with OpenTelemetry OTLP export, and structured JSON logging. The `observability/` folder provides Docker Compose for Prometheus, Grafana, Tempo, Loki, Grafana Alloy and Alertmanager, with provisioned data sources, a dashboard and alert rules. See [observability setup](observability/README.md) for startup commands, trace/log correlation, notifications and end-to-end ingestion verification.
+This branch (`actuator-only-no-external-tools`) requires only Java 17+ and Maven to build/test. The main branch retains the complete external observability stack. No Docker, Prometheus, Grafana, Tempo, Loki, Alloy or Alertmanager is needed here. OpenAPI/Swagger UI remains available in dev.
+
+All six applications retain Spring Boot Actuator and its built-in Micrometer metrics. Use a browser or an HTTP client to inspect, for example:
+
+- http://localhost:8081/actuator/health
+- http://localhost:8081/actuator/health/liveness
+- http://localhost:8081/actuator/health/readiness
+- http://localhost:8081/actuator/metrics
+- http://localhost:8081/actuator/metrics/jvm.memory.used
+- http://localhost:8081/actuator/metrics/http.server.requests
+
+HTTP request metrics appear after requests have been processed. To inspect a particular route, use `/actuator/metrics/http.server.requests?tag=uri:/students/{id}` (encode braces when using a strict HTTP client). The metrics endpoint exposes current process measurements, not persistent historical charts; measurements reset when that JVM restarts.
+
+Structured JSON console/file logging remains enabled. Local files are written to `logs/<application>-<port>.log`, rotate at 10 MB, and have bounded retention. Run from the repository root or set `LOG_DIRECTORY`. There is no central log server, distributed tracing, trace export, dashboard or automatic alert notification in this branch. Service/instance fields remain in logs; distributed trace/span correlation is removed.
+
+The Prometheus registry, OpenTelemetry exporter and Micrometer tracing bridge have been removed, along with backend configuration and Docker-based CI steps. `/actuator/prometheus` is unavailable. Java integration tests verify health/metrics on all eight demo instances, discovery/load balancing, Swagger UI and prod documentation shutdown; they need no external backends. Keep Actuator endpoints private in shared environments.
 
 ## OpenAPI documentation and Swagger UI
 

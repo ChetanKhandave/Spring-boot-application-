@@ -1,8 +1,0 @@
-# Example only; not loaded by Compose. Replace the URL before enabling.
-route:
-  receiver: operations-webhook
-receivers:
-  - name: operations-webhook
-    webhook_configs:
-      - url: https://your-notification-service.example/alerts
-        send_resolved: true

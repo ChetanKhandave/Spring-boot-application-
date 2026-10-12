@@ -28,7 +28,7 @@ public class EmployeeController {
  @GetMapping("/{id}")
  public Response find(@Parameter(description = "Positive identifier", example = "101", required = true, schema = @Schema(type = "integer", format = "int64", minimum = "1")) @PathVariable long id) {
   if (id <= 0) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "id must be positive");
-  // Trace and span IDs are added by Micrometer; no request payload or personal data is logged.
+  // Log instance identity without request payloads or personal data.
   logger.info("Demo request processed by instance {}", environment.getProperty("server.port"));
   return new Response(id, "Employee " + id, "employee-service", environment.getProperty("local.server.port", environment.getProperty("server.port")), environment.getProperty("app.configuration.profile", "unknown"));
  }
