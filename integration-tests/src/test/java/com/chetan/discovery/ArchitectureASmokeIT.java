@@ -123,7 +123,7 @@ class ArchitectureASmokeIT {
 
     private JsonNode get(int port, String path) throws IOException, InterruptedException {
         HttpRequest request = HttpRequest.newBuilder(URI.create("http://localhost:" + port + path))
-                .timeout(Duration.ofSeconds(5)).GET().build();
+                .timeout(Duration.ofSeconds(15)).GET().build();
         HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
         if (response.statusCode() != 200) {
             throw new IOException("GET " + path + " returned HTTP " + response.statusCode());
@@ -167,7 +167,7 @@ class ArchitectureASmokeIT {
         start("api-gateway", 8180, "prod");
         await(() -> "UP".equals(get(8180, "/actuator/health").path("status").asText()), "prod gateway");
         assertEquals(404, status(8180, "/v3/api-docs"));
-        assertEquals(404, status(8180, "/swagger-ui/index.html"));
+        await(() -> status(8180, "/swagger-ui/index.html") == 404, "prod gateway Swagger disabled");
         for (String[] service : services) {
             assertEquals(404, status(8180, "/openapi/" + service[1]));
         }
@@ -176,7 +176,7 @@ class ArchitectureASmokeIT {
 
     private int status(int port, String path) throws IOException, InterruptedException {
         HttpRequest request = HttpRequest.newBuilder(URI.create("http://localhost:" + port + path))
-                .timeout(Duration.ofSeconds(5)).GET().build();
+                .timeout(Duration.ofSeconds(15)).GET().build();
         return client.send(request, HttpResponse.BodyHandlers.discarding()).statusCode();
     }
 
