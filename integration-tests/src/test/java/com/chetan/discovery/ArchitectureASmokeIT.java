@@ -88,7 +88,8 @@ class ArchitectureASmokeIT {
                 org.junit.jupiter.api.Assertions.assertTrue(metrics.path("names").toString().contains("jvm.memory.used"));
                 JsonNode memory = get(port, "/actuator/metrics/jvm.memory.used");
                 org.junit.jupiter.api.Assertions.assertFalse(memory.path("measurements").isEmpty());
-                assertEquals(404, status(port, "/actuator/prometheus"));
+                org.junit.jupiter.api.Assertions.assertFalse(get(port, "/actuator").path("_links").has("prometheus"),
+                        "Prometheus must not be published by Actuator");
             }
             System.out.println("PASS: built-in Actuator metrics on all JVMs without external backends");
             verifyOpenApi();
