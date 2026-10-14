@@ -162,3 +162,17 @@ Gateway presents three definitions rather than merging their contracts. Dev-only
 Contracts document operation descriptions, the positive ID parameter, HTTP 200/400 responses and response field meanings/examples. Swagger UI enables manual interactive API calls; it does not replace automated tests. Maven verification checks contracts, UI pages, Gateway aggregation, invalid-ID responses and documentation shutdown with real `prod` applications.
 
 For `prod` (and profiles other than explicitly enabled `dev`), API-docs and UI are disabled by default. Gateway documentation routes are configured only in the dev overlay. Start every client with the intended profile, e.g. `--spring.profiles.active=prod`; mixing dev clients with a prod Gateway can still leave direct dev service documentation accessible. No authentication is added by Swagger itself. Keep dev services private; if security is added later, configure documentation access according to the chosen authentication policy.
+
+## Global API exception handling
+
+Student, Employee and College use `@RestControllerAdvice` based on Spring MVC's `ResponseEntityExceptionHandler`. Gateway uses a reactive `ErrorWebExceptionHandler` because routing/filter errors occur outside MVC controllers. Both produce `application/json`:
+
+```json
+{"timestamp":"2026-10-14T10:00:00Z","status":400,"error":"Bad Request","code":"INVALID_REQUEST","message":"Invalid request. Check the parameters and request body.","path":"/students/0","errorId":"d64f0f97-4a1e-45b7-81a0-5731286811e1"}
+```
+
+Framework statuses and headers (such as `Allow` for HTTP 405) are retained. Invalid IDs, type mismatches, malformed bodies and MVC validation errors produce safe 400 responses. Missing endpoints return 404; unexpected failures return 500. Gateway connection failures return 503 and timeouts return 504; an explicit framework status takes precedence. Responses already committed cannot be rewritten. Downstream error responses pass through Gateway without creating a second error ID.
+
+Clients should use HTTP status and `code`; use `errorId` when reporting an incident. Messages never include exception text, stack traces, payloads or query strings. Server errors log errorId/status/exception type, without sensitive exception messages. Extend the advice with deliberate business-exception mappings when adding new use cases; do not turn every business exception into HTTP 400. Infrastructure management APIs retain their framework behavior.
+
+OpenAPI documents the 400/500 error contract. Tests cover validation errors, malformed JSON, status preservation, protocol headers, sanitized unexpected failures, Gateway connection/timeout failures and committed responses. The Java integration test also verifies error bodies through real Gateway/service instances.

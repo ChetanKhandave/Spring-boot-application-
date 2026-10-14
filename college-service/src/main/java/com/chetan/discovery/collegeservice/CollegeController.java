@@ -23,7 +23,8 @@ public class CollegeController {
  @Operation(summary = "Find a college by ID", description = "Returns demo data for any positive ID. Instance port shows which service handled the request.",
    responses = {
      @ApiResponse(responseCode = "200", description = "Demo record returned", content = @Content(mediaType = "application/json", schema = @Schema(implementation = Response.class))),
-     @ApiResponse(responseCode = "400", description = "ID is nonnumeric or not positive", content = @Content)
+     @ApiResponse(responseCode = "400", description = "ID is nonnumeric or not positive", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiError.class))),
+     @ApiResponse(responseCode = "500", description = "Unexpected server error", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiError.class)))
    })
  @GetMapping("/{id}")
  public Response find(@Parameter(description = "Positive identifier", example = "101", required = true, schema = @Schema(type = "integer", format = "int64", minimum = "1")) @PathVariable long id) {

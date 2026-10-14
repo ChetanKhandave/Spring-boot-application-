@@ -92,6 +92,12 @@ class ArchitectureASmokeIT {
                         "Prometheus must not be published by Actuator");
             }
             System.out.println("PASS: built-in Actuator metrics on all JVMs without external backends");
+            for (String route : List.of("students", "employees", "colleges")) {
+                verifyError(8080, "/" + route + "/0", 400);
+                verifyError(8080, "/" + route + "/abc", 400);
+            }
+            verifyError(8080, "/route-does-not-exist", 404);
+            verifyError(8081, "/route-does-not-exist", 404);
             verifyOpenApi();
             System.out.println("PASS: centralized configuration, real Eureka discovery, three gateway routes, round-robin distribution: " + counts);
         } finally {
@@ -172,6 +178,19 @@ class ArchitectureASmokeIT {
             assertEquals(404, status(8180, "/openapi/" + service[1]));
         }
         System.out.println("PASS: OpenAPI contracts, Swagger UI, Gateway docs aggregation, invalid-ID calls and prod docs disabled");
+    }
+
+    /** Confirms that service errors survive gateway forwarding with the same safe contract. */
+    private void verifyError(int port, String path, int expectedStatus) throws Exception {
+        HttpResponse<String> response = client.send(HttpRequest.newBuilder(
+                URI.create("http://localhost:" + port + path)).timeout(Duration.ofSeconds(15)).GET().build(),
+                HttpResponse.BodyHandlers.ofString());
+        assertEquals(expectedStatus, response.statusCode());
+        JsonNode body = mapper.readTree(response.body());
+        assertEquals(expectedStatus, body.path("status").asInt());
+        assertEquals(path, body.path("path").asText());
+        org.junit.jupiter.api.Assertions.assertTrue(body.path("errorId").asText().matches("[a-f0-9-]{36}"));
+        org.junit.jupiter.api.Assertions.assertFalse(body.has("stackTrace"));
     }
 
     private int status(int port, String path) throws IOException, InterruptedException {
