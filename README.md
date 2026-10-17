@@ -147,3 +147,7 @@ Gateway presents three definitions rather than merging their contracts. Dev-only
 Contracts document operation descriptions, the positive ID parameter, HTTP 200/400 responses and response field meanings/examples. Swagger UI enables manual interactive API calls; it does not replace automated tests. Maven verification checks contracts, UI pages, Gateway aggregation, invalid-ID responses and documentation shutdown with real `prod` applications.
 
 For `prod` (and profiles other than explicitly enabled `dev`), API-docs and UI are disabled by default. Gateway documentation routes are configured only in the dev overlay. Start every client with the intended profile, e.g. `--spring.profiles.active=prod`; mixing dev clients with a prod Gateway can still leave direct dev service documentation accessible. No authentication is added by Swagger itself. Keep dev services private; if security is added later, configure documentation access according to the chosen authentication policy.
+
+## Shared outbound HTTP client
+
+The MVC services depend on [`common-http-client`](common-http-client/README.md). See its guide for separate provider configurations, typed responses, authentication extensions and test commands.
