@@ -176,3 +176,7 @@ Framework statuses and headers (such as `Allow` for HTTP 405) are retained. Inva
 Clients should use HTTP status and `code`; use `errorId` when reporting an incident. Messages never include exception text, stack traces, payloads or query strings. Server errors log errorId/status/exception type, without sensitive exception messages. Extend the advice with deliberate business-exception mappings when adding new use cases; do not turn every business exception into HTTP 400. Infrastructure management APIs retain their framework behavior.
 
 OpenAPI documents the 400/500 error contract. Tests cover validation errors, malformed JSON, status preservation, protocol headers, sanitized unexpected failures, Gateway connection/timeout failures and committed responses. The Java integration test also verifies error bodies through real Gateway/service instances.
+
+## Shared outbound HTTP client
+
+The MVC services depend on [`common-http-client`](common-http-client/README.md). See its guide for separate provider configurations, typed responses, authentication extensions and test commands.
