@@ -1,6 +1,7 @@
 package com.chetan.discovery.studentservice;
 
 import org.junit.jupiter.api.Test;
+import com.fasterxml.jackson.databind.JsonNode;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
@@ -20,15 +21,17 @@ class StudentPersistenceIT {
     @Autowired TestRestTemplate http;
     @Autowired StudentRepository repository;
     @Test void committedCrudIsVisibleAcrossSeparateHttpRequests() {
-        var created = http.postForEntity("/students", Map.of("name", "Created"), StudentModel.class);
+        var created = http.postForEntity("/students", Map.of("name", "Created"), JsonNode.class);
         assertEquals(HttpStatus.CREATED, created.getStatusCode());
         assertNotNull(created.getHeaders().getLocation());
-        long id = created.getBody().id();
+        long id = created.getBody().path("id").asLong();
+        assertBusinessBody(created.getBody(), id, "Created");
         String path = "/students/" + id;
         assertTrue(repository.existsById(id));
-        assertEquals("Created", http.getForObject(path, StudentModel.class).name());
-        var updated = http.exchange(path, HttpMethod.PUT, new HttpEntity<>(Map.of("name", "Updated")), StudentModel.class);
+        assertBusinessBody(http.getForObject(path, JsonNode.class), id, "Created");
+        var updated = http.exchange(path, HttpMethod.PUT, new HttpEntity<>(Map.of("name", "Updated")), JsonNode.class);
         assertEquals(HttpStatus.OK, updated.getStatusCode());
+        assertBusinessBody(updated.getBody(), id, "Updated");
         assertEquals("Updated", repository.findById(id).orElseThrow().getName());
         assertEquals(HttpStatus.NO_CONTENT, http.exchange(path, HttpMethod.DELETE, HttpEntity.EMPTY, Void.class).getStatusCode());
         assertFalse(repository.existsById(id));
@@ -44,5 +47,13 @@ class StudentPersistenceIT {
         assertEquals(HttpStatus.BAD_REQUEST, http.postForEntity("/students", Map.of(), String.class).getStatusCode());
         assertEquals(HttpStatus.BAD_REQUEST, http.getForEntity("/students/0", String.class).getStatusCode());
         assertEquals(before, repository.count());
+    }
+    /** Inspect raw JSON so deserialization cannot silently ignore leaked metadata. */
+    private void assertBusinessBody(JsonNode body, long id, String name) {
+        assertNotNull(body);
+        assertTrue(body.isObject());
+        assertEquals(2, body.size());
+        assertEquals(id, body.path("id").asLong());
+        assertEquals(name, body.path("name").asText());
     }
 }

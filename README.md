@@ -48,15 +48,18 @@ Wait until Eureka lists the instances as UP and gateway discovery caches refresh
 Example response:
 
 ```json
-{"id":101,"name":"Student 101","service":"student-service","instancePort":"8082","configurationProfile":"dev"}
+{"id":101,"name":"Student 101"}
 ```
 
 Records are read from a service-owned H2 database through Spring Data JPA. Development seeds record 101; unknown positive IDs return HTTP 404. Invalid or nonpositive IDs return HTTP 400.
-Request the student URL repeatedly to observe different `instancePort` values. In PowerShell:
+Request the student URL in PowerShell:
 
 ```powershell
 1..12 | ForEach-Object { Invoke-RestMethod http://localhost:8080/students/101 }
 ```
+
+Business responses are identical across instances. The smoke test verifies distribution using
+per-instance Actuator HTTP request counters.
 
 The default selection is round-robin; it balances instance selections, not CPU usage or active request counts. Starting another instance needs no gateway route change.
 
@@ -149,7 +152,7 @@ The Prometheus registry, OpenTelemetry exporter and Micrometer tracing bridge ha
 
 The business services use `springdoc-openapi-starter-webmvc-ui`; reactive Gateway uses `springdoc-openapi-starter-webflux-ui`. Version 2.8.17 is managed in the parent POM for Spring Boot 3.5 compatibility. Infrastructure services (Config Server and Eureka) expose health/metrics rather than business Swagger endpoints.
 
-With the default `dev` profile, start Config Server, Eureka, services and Gateway, then open **http://localhost:8080/swagger-ui.html**. Select Student, Employee or College Service in the definition dropdown, expand the GET operation, choose **Try it out**, enter `101`, and click **Execute**. Requests go through Gateway and can return different instance ports. Enter `0` or a nonnumeric ID to test HTTP 400. The endpoints read persisted records; an unknown positive ID returns HTTP 404. Use POST to create a record, PUT to change it, and DELETE to remove it.
+With the default `dev` profile, start Config Server, Eureka, services and Gateway, then open **http://localhost:8080/swagger-ui.html**. Select Student, Employee or College Service in the definition dropdown, expand the GET operation, choose **Try it out**, enter `101`, and click **Execute**. Requests go through Gateway; responses contain only business fields. Enter `0` or a nonnumeric ID to test HTTP 400. The endpoints read persisted records; an unknown positive ID returns HTTP 404. Use POST to create a record, PUT to change it, and DELETE to remove it.
 
 | Service | Direct Swagger UI | Direct OpenAPI JSON | OpenAPI through Gateway |
 |---|---|---|---|
@@ -191,8 +194,9 @@ Student, Employee, and College now have the same layered structure:
 Each service owns its entity/table and database. `StudentEntity` (and equivalents) is the JPA type;
 `StudentModel` is an immutable application model; `StudentRequest` validates write payloads.
 `StudentMapper` uses MapStruct 1.6.3 to generate the entity/model mapping at compile time.
-Entities are never returned to HTTP clients. Responses preserve `service`, `instancePort`, and
-`configurationProfile` metadata. Constructors inject dependencies for unit testing.
+Entities are never returned to HTTP clients. GET, POST, and PUT responses contain only `id` and
+`name`. Service identity, instance port, and configuration profile are not returned in business
+response bodies or moved into headers. Constructors inject dependencies for unit testing.
 
 ### Database and instances
 
@@ -245,7 +249,8 @@ mvn clean verify
 error-handler tests. `verify` also runs each service's `*PersistenceIT` with a real HTTP server,
 real generated mapper, repository and isolated in-memory H2. These check committed create/read/
 update/delete across separate requests, missing records, and validation without writes.
-The architecture smoke test still starts real JVMs and verifies discovery, load balancing,
+The architecture smoke test starts real JVMs and verifies discovery and round-robin load balancing
+using per-instance Actuator HTTP request-count deltas (12 gateway calls, four per instance),
 Actuator, error contracts and Swagger/profile behavior; its H2 databases are isolated per process
 and seed 101 in both tested profiles, so it does not modify local persistent files.
 
@@ -253,3 +258,10 @@ Integration tests run through Maven Failsafe. Reports are in each module's `targ
 unit reports are in `target/surefire-reports`. GitHub Actions runs `mvn -B clean verify`.
 Service tests use Mockito's subclass mock maker (configured in test resources), avoiding runtime JVM self-attachment. Dependencies mocked here are interfaces or nonfinal classes.
 No Spring JDBC implementation is added; persistence uses Spring Data JPA/Hibernate.
+
+
+Business-response contract tests inspect raw JSON for GET/POST/PUT and require exactly `id` and
+`name`, so extra deployment metadata cannot pass unnoticed through model deserialization.
+The smoke test verifies profile configuration via Config Server and development/production
+Swagger behavior. Instance selection is checked through Actuator measurements instead of API
+payload fields. No instance/profile headers or diagnostic business endpoints are introduced.

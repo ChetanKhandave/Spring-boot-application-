@@ -19,7 +19,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -72,16 +71,21 @@ class ArchitectureASmokeIT {
             start("api-gateway", 8080);
 
             // Discovery is eventually consistent; readiness is polled rather than assumed.
-            await(() -> "student-service".equals(get(8080, "/students/101").path("service").asText()),
+            await(() -> businessRecord(get(8080, "/students/101"), "Student 101"),
                     "student route discovery");
-            Set<String> expectedPorts = Set.of("8081", "8082", "8083");
-            await(() -> sampleStudents().keySet().equals(expectedPorts), "all three student instances");
+            // Prime each instance's HTTP meter before taking delta measurements.
+            for (int port : new int[]{8081, 8082, 8083}) {
+                await(() -> businessRecord(get(port, "/students/101"), "Student 101"), "student readiness " + port);
+                await(() -> studentRequestCount(port) > 0, "student request meter " + port);
+            }
+            await(() -> sampleStudents().equals(Map.of("8081", 4, "8082", 4, "8083", 4)),
+                    "all three student instances in the gateway cache");
             Map<String, Integer> counts = sampleStudents();
             assertEquals(Map.of("8081", 4, "8082", 4, "8083", 4), counts,
                     "Twelve sequential requests should be evenly distributed");
-            await(() -> "employee-service".equals(get(8080, "/employees/101").path("service").asText()),
+            await(() -> businessRecord(get(8080, "/employees/101"), "Employee 101"),
                     "employee route discovery");
-            await(() -> "college-service".equals(get(8080, "/colleges/101").path("service").asText()),
+            await(() -> businessRecord(get(8080, "/colleges/101"), "College 101"),
                     "college route discovery");
             for (int port : new int[]{8762, 8761, 8080, 8081, 8082, 8083, 8091, 8101}) {
                 JsonNode metrics = get(port, "/actuator/metrics");
@@ -168,7 +172,8 @@ class ArchitectureASmokeIT {
             int port = Integer.parseInt(service[3]);
             start(service[0], port, "prod");
             await(() -> "UP".equals(get(port, "/actuator/health").path("status").asText()), "prod " + service[0]);
-            assertEquals("prod", get(port, "/" + service[1] + "/101").path("configurationProfile").asText());
+            assertBusinessRecord(get(port, "/" + service[1] + "/101"),
+                    service[0].substring(0, 1).toUpperCase() + service[0].substring(1, service[0].indexOf("-")) + " 101");
             assertEquals(404, status(port, "/v3/api-docs"));
             assertEquals(404, status(port, "/swagger-ui/index.html"));
         }
@@ -211,16 +216,46 @@ class ArchitectureASmokeIT {
         return response.body();
     }
 
-    private Map<String, Integer> sampleStudents() throws IOException, InterruptedException {
-        Map<String, Integer> counts = new HashMap<>();
+    /** Measures instance-local request counts; deployment metadata stays out of business APIs. */
+    private Map<String, Integer> sampleStudents() throws Exception {
+        Map<String, Integer> before = new HashMap<>();
+        for (int port : new int[]{8081, 8082, 8083}) {
+            before.put(Integer.toString(port), studentRequestCount(port));
+        }
         for (int i = 0; i < 12; i++) {
-            JsonNode response = get(8080, "/students/101");
-            assertEquals("student-service", response.path("service").asText());
-            assertEquals(101, response.path("id").asInt());
-            assertEquals("dev", response.path("configurationProfile").asText(), "Client must consume remote properties");
-            counts.merge(response.path("instancePort").asText(), 1, Integer::sum);
+            assertBusinessRecord(get(8080, "/students/101"), "Student 101");
+        }
+        // HTTP meters finish recording as each response completes; allow that completion to settle.
+        await(() -> studentRequestCount(8081) + studentRequestCount(8082) + studentRequestCount(8083)
+                == before.values().stream().mapToInt(Integer::intValue).sum() + 12,
+                "student HTTP metric completion");
+        Map<String, Integer> counts = new HashMap<>();
+        for (int port : new int[]{8081, 8082, 8083}) {
+            counts.put(Integer.toString(port), studentRequestCount(port) - before.get(Integer.toString(port)));
         }
         return counts;
+    }
+
+    private int studentRequestCount(int port) throws IOException, InterruptedException {
+        JsonNode metric = get(port, "/actuator/metrics/http.server.requests"
+                + "?tag=uri%3A%2Fstudents%2F%7Bid%7D&tag=method%3AGET&tag=status%3A200");
+        for (JsonNode measurement : metric.path("measurements")) {
+            if ("COUNT".equals(measurement.path("statistic").asText())) {
+                return measurement.path("value").asInt();
+            }
+        }
+        throw new IOException("Missing HTTP COUNT measurement on " + port);
+    }
+
+    private boolean businessRecord(JsonNode response, String name) {
+        assertBusinessRecord(response, name);
+        return true;
+    }
+
+    private void assertBusinessRecord(JsonNode response, String name) {
+        assertEquals(2, response.size(), "Business responses contain only id and name");
+        assertEquals(101, response.path("id").asInt());
+        assertEquals(name, response.path("name").asText());
     }
 
     /** Retries transient HTTP/discovery failures, preserving the last cause on timeout. */
@@ -284,6 +319,6 @@ class ArchitectureASmokeIT {
 
     @FunctionalInterface
     private interface Check {
-        boolean ready() throws IOException, InterruptedException;
+        boolean ready() throws Exception;
     }
 }

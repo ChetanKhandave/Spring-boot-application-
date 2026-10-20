@@ -1,7 +1,6 @@
 package com.chetan.discovery.employeeservice;
 
 import jakarta.validation.Valid;
-import org.springframework.core.env.Environment;
 import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
@@ -14,29 +13,27 @@ import java.net.URI;
 @RequestMapping("/employees")
 public class EmployeeController {
     private final EmployeeService service;
-    private final Environment environment;
-    public EmployeeController(EmployeeService service, Environment environment) {
+    public EmployeeController(EmployeeService service) {
         this.service = service;
-        this.environment = environment;
     }
     @Operation(summary = "Find a employee by ID")
     @ApiResponse(responseCode = "200", description = "Record found")
     @ApiResponse(responseCode = "400", description = "Invalid ID")
     @ApiResponse(responseCode = "404", description = "Record not found")
     @GetMapping("/{id}")
-    public Response find(@PathVariable long id) {
+    public EmployeeModel find(@PathVariable long id) {
         validateId(id);
-        return response(service.find(id));
+        return service.find(id);
     }
     @PostMapping
-    public ResponseEntity<Response> create(@Valid @RequestBody EmployeeRequest request) {
+    public ResponseEntity<EmployeeModel> create(@Valid @RequestBody EmployeeRequest request) {
         var model = service.create(request);
-        return ResponseEntity.created(URI.create("/employees/" + model.id())).body(response(model));
+        return ResponseEntity.created(URI.create("/employees/" + model.id())).body(model);
     }
     @PutMapping("/{id}")
-    public Response update(@PathVariable long id, @Valid @RequestBody EmployeeRequest request) {
+    public EmployeeModel update(@PathVariable long id, @Valid @RequestBody EmployeeRequest request) {
         validateId(id);
-        return response(service.update(id, request));
+        return service.update(id, request);
     }
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
@@ -44,12 +41,4 @@ public class EmployeeController {
     private void validateId(long id) {
         if (id <= 0) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "id must be positive");
     }
-    private Response response(EmployeeModel model) {
-        return new Response(model.id(), model.name(), "employee-service",
-            environment.getProperty("local.server.port", environment.getProperty("server.port")),
-            environment.getProperty("app.configuration.profile", "unknown"));
-    }
-    /** API model with instance metadata retained for the discovery/load-balancing demonstration. */
-    public record Response(Long id, String name, String service, String instancePort,
-                           String configurationProfile) {}
 }
