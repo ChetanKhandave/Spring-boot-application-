@@ -1,43 +1,55 @@
 package com.chetan.discovery.employeeservice;
-import io.swagger.v3.oas.annotations.Operation;
-import io.swagger.v3.oas.annotations.Parameter;
-import io.swagger.v3.oas.annotations.media.Content;
-import io.swagger.v3.oas.annotations.media.Schema;
-import io.swagger.v3.oas.annotations.responses.ApiResponse;
-import io.swagger.v3.oas.annotations.tags.Tag;
+
+import jakarta.validation.Valid;
 import org.springframework.core.env.Environment;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
-import org.springframework.http.HttpStatus;
-/** Demo endpoint returning instance identity so load balancing is visible. */
-@Tag(name = "Employees", description = "Demo employee lookup endpoints")
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import java.net.URI;
+
+/** HTTP adapter. Entities remain behind the service boundary. */
 @RestController
 @RequestMapping("/employees")
 public class EmployeeController {
- private static final Logger logger = LoggerFactory.getLogger(EmployeeController.class);
- private final Environment environment;
- public EmployeeController(Environment environment) { this.environment = environment; }
- /** Returns illustrative data, not a persisted database record. */
- @Operation(summary = "Find a employee by ID", description = "Returns demo data for any positive ID. Instance port shows which service handled the request.",
-   responses = {
-     @ApiResponse(responseCode = "200", description = "Demo record returned", content = @Content(mediaType = "application/json", schema = @Schema(implementation = Response.class))),
-     @ApiResponse(responseCode = "400", description = "ID is nonnumeric or not positive", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiError.class))),
-     @ApiResponse(responseCode = "500", description = "Unexpected server error", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiError.class)))
-   })
- @GetMapping("/{id}")
- public Response find(@Parameter(description = "Positive identifier", example = "101", required = true, schema = @Schema(type = "integer", format = "int64", minimum = "1")) @PathVariable long id) {
-  if (id <= 0) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "id must be positive");
-  // Log instance identity without request payloads or personal data.
-  logger.info("Demo request processed by instance {}", environment.getProperty("server.port"));
-  return new Response(id, "Employee " + id, "employee-service", environment.getProperty("local.server.port", environment.getProperty("server.port")), environment.getProperty("app.configuration.profile", "unknown"));
- }
- @Schema(description = "Demo record and responding instance metadata")
- public record Response(
-   @Schema(description = "Requested identifier", example = "101") long id,
-   @Schema(description = "Illustrative display name", example = "Employee 101") String name,
-   @Schema(description = "Logical service name", example = "employee-service") String service,
-   @Schema(description = "Responding instance port", example = "8081") String instancePort,
-   @Schema(description = "Profile marker loaded from Config Server", example = "dev") String configurationProfile) {}
+    private final EmployeeService service;
+    private final Environment environment;
+    public EmployeeController(EmployeeService service, Environment environment) {
+        this.service = service;
+        this.environment = environment;
+    }
+    @Operation(summary = "Find a employee by ID")
+    @ApiResponse(responseCode = "200", description = "Record found")
+    @ApiResponse(responseCode = "400", description = "Invalid ID")
+    @ApiResponse(responseCode = "404", description = "Record not found")
+    @GetMapping("/{id}")
+    public Response find(@PathVariable long id) {
+        validateId(id);
+        return response(service.find(id));
+    }
+    @PostMapping
+    public ResponseEntity<Response> create(@Valid @RequestBody EmployeeRequest request) {
+        var model = service.create(request);
+        return ResponseEntity.created(URI.create("/employees/" + model.id())).body(response(model));
+    }
+    @PutMapping("/{id}")
+    public Response update(@PathVariable long id, @Valid @RequestBody EmployeeRequest request) {
+        validateId(id);
+        return response(service.update(id, request));
+    }
+    @DeleteMapping("/{id}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void delete(@PathVariable long id) { validateId(id); service.delete(id); }
+    private void validateId(long id) {
+        if (id <= 0) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "id must be positive");
+    }
+    private Response response(EmployeeModel model) {
+        return new Response(model.id(), model.name(), "employee-service",
+            environment.getProperty("local.server.port", environment.getProperty("server.port")),
+            environment.getProperty("app.configuration.profile", "unknown"));
+    }
+    /** API model with instance metadata retained for the discovery/load-balancing demonstration. */
+    public record Response(Long id, String name, String service, String instancePort,
+                           String configurationProfile) {}
 }

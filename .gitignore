@@ -7,3 +7,8 @@
 *.log
 logs/
 .env
+
+data/
+*.mv.db
+*.trace.db
+*.lock.db

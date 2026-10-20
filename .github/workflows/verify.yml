@@ -19,6 +19,6 @@ jobs:
           name: test-reports-and-smoke-logs
           path: |
             **/target/surefire-reports/
-            integration-tests/target/failsafe-reports/
+            **/target/failsafe-reports/
             integration-tests/target/smoke-logs/
             logs/

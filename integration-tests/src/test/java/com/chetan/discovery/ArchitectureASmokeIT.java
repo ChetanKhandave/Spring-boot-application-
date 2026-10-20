@@ -95,6 +95,7 @@ class ArchitectureASmokeIT {
             for (String route : List.of("students", "employees", "colleges")) {
                 verifyError(8080, "/" + route + "/0", 400);
                 verifyError(8080, "/" + route + "/abc", 400);
+                verifyError(8080, "/" + route + "/999", 404);
             }
             verifyError(8080, "/route-does-not-exist", 404);
             verifyError(8081, "/route-does-not-exist", 404);
@@ -119,6 +120,7 @@ class ArchitectureASmokeIT {
         String executable = System.getProperty("os.name").startsWith("Windows") ? "java.exe" : "java";
         Path java = Path.of(System.getProperty("java.home"), "bin", executable);
         Process process = new ProcessBuilder(java.toString(), "-Xmx256m", "-jar", jar.toString(),
+                "--spring.datasource.url=jdbc:h2:mem:smoke;DB_CLOSE_DELAY=-1", "--app.demo-data.enabled=true",
                 "--server.port=" + port, "--spring.profiles.active=" + (module.equals("config-server") ? "native" : profile))
                 .directory(root.toFile())
                 .redirectErrorStream(true)

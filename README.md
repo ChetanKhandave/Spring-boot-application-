@@ -9,9 +9,9 @@ These versions follow the Boot 3.x context of this example. Spring Cloud 2025.0.
 | config-server | 8762 | Central configuration for all five client applications |
 | eureka-server | 8761 | Service registry and dashboard |
 | api-gateway | 8080 | Path routing and client-side load balancing |
-| student-service | 8081, 8082, 8083 | Demo student endpoint |
-| employee-service | 8091, 8092 optional | Demo employee endpoint |
-| college-service | 8101 | Demo college endpoint |
+| student-service | 8081, 8082, 8083 | Student CRUD with JPA persistence |
+| employee-service | 8091, 8092 optional | Employee CRUD with JPA persistence |
+| college-service | 8101 | College CRUD with JPA persistence |
 
 Each service registers its logical name and instance address. Gateway obtains available instances via the Eureka client and selects one with Spring Cloud LoadBalancer. Eureka is not in the business-request forwarding path. Each gateway process has its own load balancer and registry cache.
 
@@ -51,7 +51,7 @@ Example response:
 {"id":101,"name":"Student 101","service":"student-service","instancePort":"8082","configurationProfile":"dev"}
 ```
 
-All positive IDs return illustrative data; no database is used. Invalid or nonpositive IDs return HTTP 400.
+Records are read from a service-owned H2 database through Spring Data JPA. Development seeds record 101; unknown positive IDs return HTTP 404. Invalid or nonpositive IDs return HTTP 400.
 Request the student URL repeatedly to observe different `instancePort` values. In PowerShell:
 
 ```powershell
@@ -110,7 +110,7 @@ mvn clean verify
 
 The Java test first starts Config Server, verifies dev/prod configuration for every client, and checks that Student Service consumes the remote profile marker. It uses `ProcessBuilder` to launch Eureka, three student instances, employee, college and gateway. Java 17 `HttpClient` sends actual HTTP requests; Jackson reads JSON and JUnit checks the responses. It waits for discovery, verifies all three gateway routes, and asserts that 12 sequential student requests reach each of three stable instances four times. It stops its own processes even after a failure and keeps application logs under `integration-tests/target/smoke-logs`.
 
-Requires ports 8762, 8761, 8080–8083, 8091, 8101, 8180, 8181, 8191 and 8201 free and approximately 3 GB free RAM (including production documentation checks). Run the Maven command from the repository root. To build and run only unit tests without starting the full architecture:
+Requires ports 8762, 8761, 8080–8083, 8091, 8101, 8180, 8181, 8191 and 8201 free and approximately 6 GB free RAM (including production documentation checks). Run the Maven command from the repository root. To build and run only unit tests without starting the full architecture:
 
 ```sh
 mvn clean verify -DskipITs
@@ -149,7 +149,7 @@ The Prometheus registry, OpenTelemetry exporter and Micrometer tracing bridge ha
 
 The business services use `springdoc-openapi-starter-webmvc-ui`; reactive Gateway uses `springdoc-openapi-starter-webflux-ui`. Version 2.8.17 is managed in the parent POM for Spring Boot 3.5 compatibility. Infrastructure services (Config Server and Eureka) expose health/metrics rather than business Swagger endpoints.
 
-With the default `dev` profile, start Config Server, Eureka, services and Gateway, then open **http://localhost:8080/swagger-ui.html**. Select Student, Employee or College Service in the definition dropdown, expand the GET operation, choose **Try it out**, enter `101`, and click **Execute**. Requests go through Gateway and can return different instance ports. Enter `0` or a nonnumeric ID to test HTTP 400. The endpoints return illustrative data; there is no database record lookup or HTTP 404 for an unknown positive ID.
+With the default `dev` profile, start Config Server, Eureka, services and Gateway, then open **http://localhost:8080/swagger-ui.html**. Select Student, Employee or College Service in the definition dropdown, expand the GET operation, choose **Try it out**, enter `101`, and click **Execute**. Requests go through Gateway and can return different instance ports. Enter `0` or a nonnumeric ID to test HTTP 400. The endpoints read persisted records; an unknown positive ID returns HTTP 404. Use POST to create a record, PUT to change it, and DELETE to remove it.
 
 | Service | Direct Swagger UI | Direct OpenAPI JSON | OpenAPI through Gateway |
 |---|---|---|---|
@@ -159,7 +159,7 @@ With the default `dev` profile, start Config Server, Eureka, services and Gatewa
 
 Gateway presents three definitions rather than merging their contracts. Dev-only load-balanced documentation routes rewrite `/openapi/<service>` to the selected service's `/v3/api-docs`. Relative OpenAPI server URL `/` makes Try it out use the current browser origin, so direct UI calls the service and Gateway UI calls Gateway without adding CORS configuration.
 
-Contracts document operation descriptions, the positive ID parameter, HTTP 200/400 responses and response field meanings/examples. Swagger UI enables manual interactive API calls; it does not replace automated tests. Maven verification checks contracts, UI pages, Gateway aggregation, invalid-ID responses and documentation shutdown with real `prod` applications.
+Contracts describe CRUD operations, request/response models, and lookup HTTP 200/400/404 responses. Swagger UI enables manual interactive API calls; it does not replace automated tests. Maven verification checks contracts, UI pages, Gateway aggregation, invalid-ID responses and documentation shutdown with real `prod` applications.
 
 For `prod` (and profiles other than explicitly enabled `dev`), API-docs and UI are disabled by default. Gateway documentation routes are configured only in the dev overlay. Start every client with the intended profile, e.g. `--spring.profiles.active=prod`; mixing dev clients with a prod Gateway can still leave direct dev service documentation accessible. No authentication is added by Swagger itself. Keep dev services private; if security is added later, configure documentation access according to the chosen authentication policy.
 
@@ -180,3 +180,76 @@ OpenAPI documents the 400/500 error contract. Tests cover validation errors, mal
 ## Shared outbound HTTP client
 
 The MVC services depend on [`common-http-client`](common-http-client/README.md). See its guide for separate provider configurations, typed responses, authentication extensions and test commands.
+
+
+## JPA persistence and MapStruct
+
+Student, Employee, and College now have the same layered structure:
+
+`Controller -> Service -> JpaRepository -> H2`
+
+Each service owns its entity/table and database. `StudentEntity` (and equivalents) is the JPA type;
+`StudentModel` is an immutable application model; `StudentRequest` validates write payloads.
+`StudentMapper` uses MapStruct 1.6.3 to generate the entity/model mapping at compile time.
+Entities are never returned to HTTP clients. Responses preserve `service`, `instancePort`, and
+`configurationProfile` metadata. Constructors inject dependencies for unit testing.
+
+### Database and instances
+
+The default H2 **file database** retains records across restarts under `./data/` when applications
+are launched from the repository root. Each service and profile has a separate file:
+`student-dev`, `employee-dev`, `college-dev` (and corresponding prod files).
+`AUTO_SERVER=TRUE` lets local JVM instances of the same service/profile share the same database file.
+Use the same working directory for these instances. If the local hostname resolves to an
+unreachable address, add JVM option `-Dh2.bindAddress=127.0.0.1` (before `-jar`, or in IDE VM arguments)
+to each service instance so the automatic H2 server uses loopback. H2 coordinates the local file server; this is
+a development setup, not a database topology for multiple hosts. For multiple machines use a shared
+server database, its JDBC driver, and an appropriate `DB_URL` per service.
+
+Override `DB_URL`, `DB_USERNAME`, and `DB_PASSWORD` separately in each service process as needed.
+`spring.jpa.hibernate.ddl-auto=update` is a local convenience; production requires managed schema
+migrations and appropriate credentials/database configuration. `spring.jpa.open-in-view=false`.
+Do not commit database files; `.gitignore` excludes them.
+
+The `dev` profile enables optional fixture ID 101. Generated IDs start at 1000 to keep fixtures
+separate. Startup inserts the fixture only if absent and preserves existing values.
+`app.demo-data.enabled=false` disables it (default for prod). A deleted development fixture will
+be recreated on the next startup while seeding remains enabled.
+
+### CRUD through Gateway
+
+Replace `students` with `employees` or `colleges` for the other services.
+
+| Method | Path | Result |
+|---|---|---|
+| POST | `/students` | Create; HTTP 201 with Location header |
+| GET | `/students/{id}` | Read; HTTP 200 or 404 |
+| PUT | `/students/{id}` | Replace name; HTTP 200 or 404 |
+| DELETE | `/students/{id}` | Delete; HTTP 204 or 404 |
+
+POST/PUT JSON example: `{"name":"Chetan"}`. Name must be nonblank and at most 100 characters.
+IDs are server-generated. Use the POST response ID for subsequent requests.
+Malformed JSON, invalid names, and invalid IDs return the existing safe HTTP 400 error contract.
+Concurrent writes currently use last-commit-wins semantics; optimistic locking is not enabled.
+
+### Tests
+
+Run from the repository root with JDK 17 and Maven:
+
+```shell
+mvn clean test
+mvn clean verify
+```
+
+`test` runs JUnit/Mockito service tests, generated MapStruct tests, MVC slice tests and existing
+error-handler tests. `verify` also runs each service's `*PersistenceIT` with a real HTTP server,
+real generated mapper, repository and isolated in-memory H2. These check committed create/read/
+update/delete across separate requests, missing records, and validation without writes.
+The architecture smoke test still starts real JVMs and verifies discovery, load balancing,
+Actuator, error contracts and Swagger/profile behavior; its H2 databases are isolated per process
+and seed 101 in both tested profiles, so it does not modify local persistent files.
+
+Integration tests run through Maven Failsafe. Reports are in each module's `target/failsafe-reports`;
+unit reports are in `target/surefire-reports`. GitHub Actions runs `mvn -B clean verify`.
+Service tests use Mockito's subclass mock maker (configured in test resources), avoiding runtime JVM self-attachment. Dependencies mocked here are interfaces or nonfinal classes.
+No Spring JDBC implementation is added; persistence uses Spring Data JPA/Hibernate.
