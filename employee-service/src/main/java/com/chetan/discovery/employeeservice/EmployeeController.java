@@ -1,6 +1,8 @@
 package com.chetan.discovery.employeeservice;
 
 import jakarta.validation.Valid;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
@@ -12,6 +14,7 @@ import java.net.URI;
 @RestController
 @RequestMapping("/employees")
 public class EmployeeController {
+    private static final Logger log = LoggerFactory.getLogger(EmployeeController.class);
     private final EmployeeService service;
     public EmployeeController(EmployeeService service) {
         this.service = service;
@@ -22,6 +25,7 @@ public class EmployeeController {
     @ApiResponse(responseCode = "404", description = "Record not found")
     @GetMapping("/{id}")
     public EmployeeModel find(@PathVariable long id) {
+        log.info("Processing employee lookup");
         validateId(id);
         return service.find(id);
     }

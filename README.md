@@ -144,9 +144,9 @@ All six applications retain Spring Boot Actuator and its built-in Micrometer met
 
 HTTP request metrics appear after requests have been processed. To inspect a particular route, use `/actuator/metrics/http.server.requests?tag=uri:/students/{id}` (encode braces when using a strict HTTP client). The metrics endpoint exposes current process measurements, not persistent historical charts; measurements reset when that JVM restarts.
 
-Structured JSON console/file logging remains enabled. Local files are written to `logs/<application>-<port>.log`, rotate at 10 MB, and have bounded retention. Run from the repository root or set `LOG_DIRECTORY`. There is no central log server, distributed tracing, trace export, dashboard or automatic alert notification in this branch. Service/instance fields remain in logs; distributed trace/span correlation is removed.
+Structured JSON console/file logging remains enabled. Local files are written to `logs/<application>-<port>.log`, rotate at 10 MB, and have bounded retention. Run from the repository root or set `LOG_DIRECTORY`. Micrometer Tracing with the OpenTelemetry bridge generates trace/span IDs and correlates logs within active request contexts. There is no central log server, trace export, dashboard or automatic alert notification in this branch. Startup/background logs may have no tracing IDs.
 
-The Prometheus registry, OpenTelemetry exporter and Micrometer tracing bridge have been removed, along with backend configuration and Docker-based CI steps. `/actuator/prometheus` is unavailable. Java integration tests verify health/metrics on all eight demo instances, discovery/load balancing, Swagger UI and prod documentation shutdown; they need no external backends. Keep Actuator endpoints private in shared environments.
+The Prometheus registry and OpenTelemetry exporter have been removed, along with backend configuration and Docker-based CI steps. `/actuator/prometheus` is unavailable. Java integration tests verify health/metrics on all eight demo instances, discovery/load balancing, Swagger UI and prod documentation shutdown; they need no external backends. Keep Actuator endpoints private in shared environments.
 
 ## OpenAPI documentation and Swagger UI
 
@@ -265,3 +265,26 @@ Business-response contract tests inspect raw JSON for GET/POST/PUT and require e
 The smoke test verifies profile configuration via Config Server and development/production
 Swagger behavior. Instance selection is checked through Actuator measurements instead of API
 payload fields. No instance/profile headers or diagnostic business endpoints are introduced.
+
+### Local request tracing
+
+All six applications include `micrometer-tracing-bridge-otel`; no collector, backend, agent,
+or additional installation is needed. W3C `traceparent` propagates through Gateway to services.
+Gateway enables HTTP client observation and automatic Reactor context propagation. Each operation
+has its own span ID while the request journey shares a trace ID. Existing JSON console/file logs
+include `traceId` and `spanId` from MDC when a tracing context is active. Business response bodies
+remain unchanged. Existing exception-handler logs also receive the active tracing IDs.
+
+Sampling defaults to 100% for this demo; override `TRACE_SAMPLING_PROBABILITY` if needed.
+Sampling controls span recording, not which application log statements execute.
+Search across `logs/*.log` for a trace ID. In Windows Command Prompt:
+
+```bat
+findstr /s /c:"YOUR_TRACE_ID" logs\*.log
+```
+
+Injected Boot `RestClient.Builder` instances retain tracing in `common-http-client`;
+pass that builder to `ApiClientFactory.create`, rather than using `RestClient.builder()`.
+Custom executors/asynchronous work need explicit context propagation. This setup does not
+instrument every Java method or database query or store complete trace timelines.
+The smoke test checks W3C propagation, generated IDs, separate requests, and JSON log correlation.

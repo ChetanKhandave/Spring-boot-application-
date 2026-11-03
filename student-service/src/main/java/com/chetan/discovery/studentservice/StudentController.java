@@ -1,6 +1,8 @@
 package com.chetan.discovery.studentservice;
 
 import jakarta.validation.Valid;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
@@ -12,6 +14,7 @@ import java.net.URI;
 @RestController
 @RequestMapping("/students")
 public class StudentController {
+    private static final Logger log = LoggerFactory.getLogger(StudentController.class);
     private final StudentService service;
     public StudentController(StudentService service) {
         this.service = service;
@@ -22,6 +25,7 @@ public class StudentController {
     @ApiResponse(responseCode = "404", description = "Record not found")
     @GetMapping("/{id}")
     public StudentModel find(@PathVariable long id) {
+        log.info("Processing student lookup");
         validateId(id);
         return service.find(id);
     }

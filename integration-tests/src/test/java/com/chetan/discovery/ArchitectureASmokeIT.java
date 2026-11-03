@@ -103,12 +103,78 @@ class ArchitectureASmokeIT {
             }
             verifyError(8080, "/route-does-not-exist", 404);
             verifyError(8081, "/route-does-not-exist", 404);
+            verifyTracing();
             verifyOpenApi();
             System.out.println("PASS: centralized configuration, real Eureka discovery, three gateway routes, round-robin distribution: " + counts);
         } finally {
             stopApplications();
             System.out.println("Application logs: " + logDirectory);
         }
+    }
+
+    /** Verifies real W3C propagation and correlation in structured console and file logs. */
+    private void verifyTracing() throws Exception {
+        for (String route : List.of("students", "employees", "colleges")) {
+            String traceId = java.util.UUID.randomUUID().toString().replace("-", "");
+            HttpRequest request = HttpRequest.newBuilder(URI.create("http://localhost:8080/" + route + "/101"))
+                    .header("traceparent", "00-" + traceId + "-0123456789abcdef-01")
+                    .timeout(Duration.ofSeconds(15)).GET().build();
+            assertEquals(200, client.send(request, HttpResponse.BodyHandlers.discarding()).statusCode());
+            await(() -> traceLogs(logDirectory, traceId).stream().anyMatch(n ->
+                    "Processing gateway request".equals(n.path("message").asText()))
+                    && traceLogs(logDirectory, traceId).stream().anyMatch(n -> n.path("message").asText()
+                    .equals("Processing " + route.substring(0, route.length() - 1) + " lookup")), "traced " + route);
+            List<JsonNode> logs = traceLogs(logDirectory, traceId);
+            JsonNode gateway = logs.stream().filter(n -> n.path("message").asText().equals("Processing gateway request"))
+                    .findFirst().orElseThrow();
+            JsonNode service = logs.stream().filter(n -> n.path("message").asText().endsWith(" lookup"))
+                    .findFirst().orElseThrow();
+            org.junit.jupiter.api.Assertions.assertNotEquals(gateway.path("spanId").asText(), service.path("spanId").asText());
+            for (JsonNode log : List.of(gateway, service)) {
+                org.junit.jupiter.api.Assertions.assertTrue(log.path("spanId").asText().matches("[0-9a-f]{16}"));
+                org.junit.jupiter.api.Assertions.assertNotEquals("0123456789abcdef", log.path("spanId").asText());
+            }
+            await(() -> traceLogs(root.resolve("logs"), traceId).stream()
+                    .anyMatch(n -> n.path("message").asText().endsWith(" lookup")), "JSON file correlation");
+        }
+        // No incoming context: the gateway generates a fresh trace for each independent request.
+        java.util.Set<String> generated = new java.util.HashSet<>();
+        for (int i = 0; i < 2; i++) {
+            Path gatewayLog = logDirectory.resolve("api-gateway-8080.log");
+            long before = Files.readAllLines(gatewayLog).size();
+            get(8080, "/employees/101");
+            java.util.concurrent.atomic.AtomicReference<String> id = new java.util.concurrent.atomic.AtomicReference<>();
+            await(() -> {
+                for (String line : Files.readAllLines(gatewayLog).stream().skip(before).toList()) {
+                    if (!line.startsWith("{")) continue;
+                    JsonNode log = mapper.readTree(line);
+                    if ("Processing gateway request".equals(log.path("message").asText())) {
+                        id.set(log.path("traceId").asText());
+                        return id.get().matches("[0-9a-f]{32}");
+                    }
+                }
+                return false;
+            }, "generated gateway trace");
+            org.junit.jupiter.api.Assertions.assertTrue(generated.add(id.get()), "Independent requests need distinct traces");
+            await(() -> traceLogs(logDirectory, id.get()).stream().anyMatch(n ->
+                    "Processing employee lookup".equals(n.path("message").asText())), "generated trace propagation");
+        }
+        System.out.println("PASS: generated trace IDs, W3C propagation, distinct spans and JSON log correlation");
+    }
+
+    private List<JsonNode> traceLogs(Path directory, String traceId) throws IOException {
+        List<JsonNode> matches = new ArrayList<>();
+        try (var files = Files.list(directory)) {
+            for (Path file : files.filter(p -> p.toString().endsWith(".log")).toList()) {
+                for (String line : Files.readAllLines(file)) {
+                    if (line.startsWith("{") && line.contains(traceId)) {
+                        JsonNode log = mapper.readTree(line);
+                        if (traceId.equals(log.path("traceId").asText())) matches.add(log);
+                    }
+                }
+            }
+        }
+        return matches;
     }
 
     private void start(String module, int port) throws IOException {
